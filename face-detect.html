@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>FaceDetect</title>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #060d1a;
+  --surface: #0d1b2e;
+  --border: #162035;
+  --accent: #00e5ff;
+  --accent2: #7c4dff;
+  --green: #00e676;
+  --yellow: #ffd740;
+  --red: #ff5252;
+  --text: #e8f0fe;
+  --muted: #546e8a;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  max-width: 430px;
+  margin: 0 auto;
+  overflow-x: hidden;
+}
+
+/* SCAN LINE ANIMATION */
+body::before {
+  content: '';
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: scanline 3s linear infinite;
+  z-index: 1000; pointer-events: none;
+}
+@keyframes scanline { from { transform: translateY(0); } to { transform: translateY(100vh); } }
+
+/* TOPBAR */
+.topbar {
+  background: rgba(6,13,26,0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.brand h1 { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
+.brand h1 span { color: var(--accent); }
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 12px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted); transition: background 0.3s;
+}
+.status-dot.live { background: var(--green); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+
+/* VIDEO AREA */
+.cam-wrap {
+  position: relative;
+  background: #000;
+  aspect-ratio: 3/4;
+  overflow: hidden;
+}
+#video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror */
+  display: block;
+}
+#overlay {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* CORNER BRACKETS */
+.cam-wrap::before, .cam-wrap::after,
+.cam-inner::before, .cam-inner::after {
+  content: '';
+  position: absolute;
+  width: 24px; height: 24px;
+  border-color: var(--accent);
+  border-style: solid;
+  z-index: 10;
+}
+.cam-wrap::before { top: 14px; left: 14px; border-width: 2px 0 0 2px; }
+.cam-wrap::after  { top: 14px; right: 14px; border-width: 2px 2px 0 0; }
+.cam-inner { position: absolute; inset: 0; pointer-events: none; }
+.cam-inner::before { bottom: 14px; left: 14px; border-width: 0 0 2px 2px; }
+.cam-inner::after  { bottom: 14px; right: 14px; border-width: 0 2px 2px 0; }
+
+/* LOADING OVERLAY */
+#loadingOverlay {
+  position: absolute; inset: 0;
+  background: rgba(6,13,26,0.92);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; z-index: 20;
+}
+.loader-ring {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadingOverlay p { font-size: 13px; color: var(--muted); font-weight: 500; }
+#loadingOverlay .pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px; font-weight: 600; color: var(--accent);
+}
+
+/* FACE COUNT BADGE */
+.face-badge {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(6,13,26,0.85); border: 1px solid var(--accent);
+  border-radius: 20px; padding: 5px 14px;
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  z-index: 15; transition: all 0.3s;
+  backdrop-filter: blur(6px);
+}
+
+/* INFO PANEL */
+.info-panel {
+  padding: 14px 14px 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.info-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+}
+.info-card .lbl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.info-card .val { font-size: 18px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono', monospace; }
+.info-card .val.accent { color: var(--accent); }
+
+/* EXPRESSION BARS */
+.expr-panel {
+  margin: 10px 14px 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px;
+}
+.expr-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.expr-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.expr-row:last-child { margin-bottom: 0; }
+.expr-emoji { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
+.expr-name { font-size: 11px; font-weight: 600; color: var(--muted); width: 60px; flex-shrink: 0; }
+.expr-bar-wrap { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.expr-bar { height: 100%; border-radius: 3px; transition: width 0.2s ease; }
+.expr-pct { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); width: 32px; text-align: right; flex-shrink: 0; }
+
+/* CONTROLS */
+.controls { padding: 12px 14px; display: flex; gap: 8px; }
+.btn {
+  flex: 1; padding: 13px 8px; border: none; border-radius: 11px;
+  font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn:active { transform: scale(0.96); }
+.b-start { background: var(--accent); color: #000; }
+.b-stop  { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+.b-flip  { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+
+/* DETAIL LIST */
+.detail-panel {
+  margin: 0 14px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px;
+}
+.detail-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.detail-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.detail-row:last-child { border-bottom: none; }
+.detail-row .k { color: var(--muted); font-weight: 500; }
+.detail-row .v { color: var(--text); font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+.no-face-msg {
+  text-align: center; padding: 16px; color: var(--muted); font-size: 12px;
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon">👁</div>
+    <h1>Face<span>Detect</span></h1>
+  </div>
+  <div class="status-pill">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusTxt">Standby</span>
+  </div>
+</div>
+
+<!-- KAMERA -->
+<div class="cam-wrap" id="camWrap">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div class="cam-inner"></div>
+  <div class="face-badge" id="faceBadge">0 Wajah</div>
+
+  <!-- Loading -->
+  <div id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <div class="pct" id="loadPct">0%</div>
+    <p id="loadMsg">Tap START untuk mulai</p>
+  </div>
+</div>
+
+<!-- INFO CARDS -->
+<div class="info-panel">
+  <div class="info-card">
+    <div class="lbl">Wajah Terdeteksi</div>
+    <div class="val accent" id="faceCount">-</div>
+  </div>
+  <div class="info-card">
+    <div class="lbl">Dominan Ekspresi</div>
+    <div class="val" id="topExpr" style="font-size:14px">-</div>
+  </div>
+  <div class="info-card">
+    <div class="lbl">Estimasi Usia</div>
+    <div class="val" id="ageVal">-</div>
+  </div>
+  <div class="info-card">
+    <div class="lbl">Gender</div>
+    <div class="val" id="genderVal" style="font-size:14px">-</div>
+  </div>
+</div>
+
+<!-- EXPRESSION BARS -->
+<div class="expr-panel">
+  <div class="expr-title">Analisis Ekspresi</div>
+  <div id="exprBars">
+    <div class="no-face-msg">Belum ada wajah terdeteksi</div>
+  </div>
+</div>
+
+<!-- CONTROLS -->
+<div class="controls">
+  <button class="btn b-start" id="btnStart" onclick="startDetect()">▶ START</button>
+  <button class="btn b-flip"  onclick="flipCam()">🔄 Balik</button>
+  <button class="btn b-stop"  onclick="stopDetect()">⏹ STOP</button>
+</div>
+
+<!-- DETAIL -->
+<div class="detail-panel">
+  <div class="detail-title">Detail Wajah Pertama</div>
+  <div id="detailRows">
+    <div class="no-face-msg">Belum ada data</div>
+  </div>
+</div>
+
+<script>
+const VIDEO = document.getElementById('video');
+const CANVAS = document.getElementById('overlay');
+const ctx = CANVAS.getContext('2d');
+
+let stream = null;
+let detecting = false;
+let modelsLoaded = false;
+let facingMode = 'user';
+let animFrame = null;
+
+const EXPRESSIONS = [
+  { key: 'happy',     emoji: '😄', label: 'Senang',  color: '#ffd740' },
+  { key: 'neutral',   emoji: '😐', label: 'Netral',  color: '#78909c' },
+  { key: 'sad',       emoji: '😢', label: 'Sedih',   color: '#42a5f5' },
+  { key: 'angry',     emoji: '😠', label: 'Marah',   color: '#ff5252' },
+  { key: 'fearful',   emoji: '😨', label: 'Takut',   color: '#ab47bc' },
+  { key: 'disgusted', emoji: '🤢', label: 'Jijik',   color: '#66bb6a' },
+  { key: 'surprised', emoji: '😲', label: 'Kaget',   color: '#00e5ff' },
+];
+
+function setStatus(txt, live = false) {
+  document.getElementById('statusTxt').textContent = txt;
+  document.getElementById('statusDot').className = 'status-dot' + (live ? ' live' : '');
+}
+function setLoad(pct, msg) {
+  document.getElementById('loadPct').textContent = pct + '%';
+  document.getElementById('loadMsg').textContent = msg;
+}
+
+async function loadModels() {
+  const BASE = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+  setLoad(0, 'Memuat model AI...');
+  setStatus('Memuat...');
+  try {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(BASE);
+    setLoad(40, 'Model deteksi ✓');
+    await faceapi.nets.faceExpressionNet.loadFromUri(BASE);
+    setLoad(70, 'Model ekspresi ✓');
+    await faceapi.nets.ageGenderNet.loadFromUri(BASE);
+    setLoad(100, 'Semua model siap ✓');
+    modelsLoaded = true;
+    setStatus('Model siap');
+    setTimeout(() => {
+      document.getElementById('loadingOverlay').style.display = 'none';
+    }, 600);
+  } catch (e) {
+    setLoad(0, '❌ Gagal memuat model: ' + e.message);
+  }
+}
+
+async function startDetect() {
+  if (!modelsLoaded) {
+    document.getElementById('loadingOverlay').style.display = 'flex';
+    setLoad(0, 'Memuat model AI...');
+    await loadModels();
+    if (!modelsLoaded) return;
+  }
+
+  if (stream) stopStream();
+
+  setStatus('Meminta kamera...');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } }
+    });
+    VIDEO.srcObject = stream;
+    await new Promise(r => VIDEO.onloadedmetadata = r);
+    VIDEO.play();
+
+    CANVAS.width = VIDEO.videoWidth;
+    CANVAS.height = VIDEO.videoHeight;
+
+    detecting = true;
+    setStatus('Mendeteksi', true);
+    detectLoop();
+  } catch (e) {
+    setStatus('Izin ditolak');
+    alert('Izin kamera dibutuhkan!\n\nPastikan:\n1. Akses via HTTPS\n2. Izinkan kamera di browser');
+  }
+}
+
+async function detectLoop() {
+  if (!detecting) return;
+
+  try {
+    const detections = await faceapi
+      .detectAllFaces(VIDEO, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+      .withFaceExpressions()
+      .withAgeAndGender();
+
+    // Resize ke ukuran canvas
+    const dims = faceapi.matchDimensions(CANVAS, VIDEO, true);
+    const resized = faceapi.resizeResults(detections, dims);
+
+    ctx.clearRect(0, 0, CANVAS.width, CANVAS.height);
+    drawDetections(resized);
+    updateUI(resized);
+
+  } catch (e) { /* skip frame */ }
+
+  animFrame = requestAnimationFrame(detectLoop);
+}
+
+function drawDetections(detections) {
+  detections.forEach((d, i) => {
+    const box = d.detection.box;
+    const score = d.detection.score;
+
+    // Flip x karena video di-mirror
+    const fx = CANVAS.width - box.x - box.width;
+
+    // Box
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(fx, box.y, box.width, box.height);
+
+    // Corner accents
+    const cs = 14;
+    ctx.strokeStyle = '#7c4dff';
+    ctx.lineWidth = 3;
+    [[fx,box.y],[fx+box.width-cs,box.y],[fx,box.y+box.height-cs],[fx+box.width-cs,box.y+box.height-cs]].forEach(([x,y],j) => {
+      ctx.beginPath();
+      if (j===0) { ctx.moveTo(x,y+cs); ctx.lineTo(x,y); ctx.lineTo(x+cs,y); }
+      if (j===1) { ctx.moveTo(x,y); ctx.lineTo(x+cs,y); ctx.lineTo(x+cs,y+cs); }
+      if (j===2) { ctx.moveTo(x,y); ctx.lineTo(x,y+cs); ctx.lineTo(x+cs,y+cs); }
+      if (j===3) { ctx.moveTo(x,y); ctx.lineTo(x+cs,y); ctx.lineTo(x+cs,y-cs); }
+      ctx.stroke();
+    });
+
+    // Label box
+    const label = `#${i+1} ${Math.round(score*100)}%`;
+    ctx.fillStyle = 'rgba(0,229,255,0.85)';
+    ctx.fillRect(fx, box.y - 20, label.length * 7 + 8, 20);
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 11px JetBrains Mono, monospace';
+    ctx.fillText(label, fx + 4, box.y - 6);
+
+    // Expression label
+    if (d.expressions) {
+      const topExpr = Object.entries(d.expressions).sort((a,b)=>b[1]-a[1])[0];
+      const exprMap = {happy:'Senang',neutral:'Netral',sad:'Sedih',angry:'Marah',fearful:'Takut',disgusted:'Jijik',surprised:'Kaget'};
+      const exprLabel = exprMap[topExpr[0]] || topExpr[0];
+      ctx.fillStyle = 'rgba(124,77,255,0.85)';
+      ctx.fillRect(fx, box.y + box.height, exprLabel.length * 7 + 8, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px Outfit, sans-serif';
+      ctx.fillText(exprLabel, fx + 4, box.y + box.height + 13);
+    }
+  });
+}
+
+function updateUI(detections) {
+  const n = detections.length;
+  document.getElementById('faceBadge').textContent = n + (n === 1 ? ' Wajah' : ' Wajah');
+  document.getElementById('faceCount').textContent = n;
+
+  if (n === 0) {
+    document.getElementById('topExpr').textContent = '-';
+    document.getElementById('ageVal').textContent = '-';
+    document.getElementById('genderVal').textContent = '-';
+    document.getElementById('exprBars').innerHTML = '<div class="no-face-msg">Tidak ada wajah</div>';
+    document.getElementById('detailRows').innerHTML = '<div class="no-face-msg">Tidak ada data</div>';
+    return;
+  }
+
+  const first = detections[0];
+
+  // Top expression
+  if (first.expressions) {
+    const sorted = Object.entries(first.expressions).sort((a,b)=>b[1]-a[1]);
+    const topKey = sorted[0][0];
+    const exprDef = EXPRESSIONS.find(e=>e.key===topKey);
+    document.getElementById('topExpr').textContent = exprDef ? exprDef.emoji+' '+exprDef.label : topKey;
+
+    // Bars
+    document.getElementById('exprBars').innerHTML = EXPRESSIONS.map(e => {
+      const val = first.expressions[e.key] || 0;
+      const pct = Math.round(val * 100);
+      return `<div class="expr-row">
+        <span class="expr-emoji">${e.emoji}</span>
+        <span class="expr-name">${e.label}</span>
+        <div class="expr-bar-wrap">
+          <div class="expr-bar" style="width:${pct}%;background:${e.color}"></div>
+        </div>
+        <span class="expr-pct">${pct}%</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Age & gender
+  if (first.age !== undefined) {
+    document.getElementById('ageVal').textContent = Math.round(first.age);
+    const gMap = { male: '👨 Pria', female: '👩 Wanita' };
+    document.getElementById('genderVal').textContent = gMap[first.gender] || first.gender;
+  }
+
+  // Detail rows
+  const box = first.detection.box;
+  document.getElementById('detailRows').innerHTML = `
+    <div class="detail-row"><span class="k">Kepercayaan</span><span class="v">${Math.round(first.detection.score*100)}%</span></div>
+    <div class="detail-row"><span class="k">Posisi X</span><span class="v">${Math.round(box.x)}px</span></div>
+    <div class="detail-row"><span class="k">Posisi Y</span><span class="v">${Math.round(box.y)}px</span></div>
+    <div class="detail-row"><span class="k">Lebar</span><span class="v">${Math.round(box.width)}px</span></div>
+    <div class="detail-row"><span class="k">Tinggi</span><span class="v">${Math.round(box.height)}px</span></div>
+    <div class="detail-row"><span class="k">Total Wajah</span><span class="v">${n} orang</span></div>
+  `;
+}
+
+function stopStream() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+
+function stopDetect() {
+  detecting = false;
+  if (animFrame) cancelAnimationFrame(animFrame);
+  stopStream();
+  ctx.clearRect(0, 0, CANVAS.width, CANVAS.height);
+  setStatus('Standby');
+  document.getElementById('faceCount').textContent = '-';
+  document.getElementById('topExpr').textContent = '-';
+  document.getElementById('ageVal').textContent = '-';
+  document.getElementById('genderVal').textContent = '-';
+  document.getElementById('faceBadge').textContent = '0 Wajah';
+  document.getElementById('exprBars').innerHTML = '<div class="no-face-msg">Belum ada wajah terdeteksi</div>';
+  document.getElementById('detailRows').innerHTML = '<div class="no-face-msg">Belum ada data</div>';
+}
+
+async function flipCam() {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  VIDEO.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+  if (detecting) await startDetect();
+}
+</script>
+</body>
+</html>
